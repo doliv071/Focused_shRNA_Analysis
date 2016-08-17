@@ -1,6 +1,6 @@
 # R Code for Focused shRNA Screening Analysis
 # Authors
-David Oliver, Piaomu Liu, Edsel Pe\~{n}a
+David Oliver, Piaomu Liu, Edsel Peña
 ### shRNA_Screening_Analysis.r requires:
 
 + MASS
