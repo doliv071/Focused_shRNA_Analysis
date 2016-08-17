@@ -1,5 +1,6 @@
 # R Code for Focused shRNA Screening Analysis
-
+# Authors
+David Oliver, Piaomu Liu, Edsel Pe\~{n}a
 ### shRNA_Screening_Analysis.r requires:
 
 + MASS
@@ -37,3 +38,4 @@ Additional parameters that can be specified:
 + passages = 5		# Number of passages (could be rounds of any sort of selection)
 + bio.reps = 2		# Number of biological replicates
 + adjust = "BH"		# Method to use for adjusting p-value for multiple testing. Argument is passed to p.adjust{stats}. see ?p.adjust for available options.
+
