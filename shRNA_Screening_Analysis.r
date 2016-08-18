@@ -10,57 +10,82 @@
 # | | |  __/ (_| | (_| | | | | | |  __/  |_| 
 # |_|  \___|\__,_|\__,_|_| |_| |_|\___|  (_) 
 
-shRNA_Screening_Analysis <- function(dat1 = "control.csv", dat2 = "treat.csv", 
-                                     genes = "targets.txt", BootRep = 10000, thresh = 10, 
-                                     passages = 5, bio.reps = 2, adjust = "BH") {
-    stopifnot(file.exists(genes))
+shRNA_Screening_Analysis <- function(dat1     = "control.csv", 
+                                     dat2     = "treat.csv", 
+                                     genes    = "targets.txt", 
+                                     BootRep  = 10000, 
+                                     thresh   = 10, 
+                                     passages = 5, 
+                                     bio.reps = 2, 
+                                     adjust   = "BH") {
+    
+    require(MASS); require(reshape2); require(preprocessCore)
+    
+    stopifnot(file.exists(dat1),
+              file.exists(dat2),
+              file.exists(genes),
+              is.numeric(BootRep),
+              is.numeric(thresh), 
+              is.numeric(passages), 
+              is.numeric(bio.reps),
+              is.character(adjust))
+    
+    dat1 <- as.matrix(read.csv(dat1, row.names = 1))
+    dat2 <- as.matrix(read.csv(dat2, row.names = 1))
+    stopifnot(is.matrix(dat1),
+              is.matrix(dat2),
+              !is.null(rownames(dat1)),  
+              !is.null(rownames(dat2)))
+    
+    shRNAs1 <- rownames(dat1)
+    shRNAs2 <- rownames(dat2)
+    CN1 <- colnames(dat1)
+    CN2 <- colnames(dat2)
+    
+    dat1[which(dat1 < thresh)] <- NA
+    dat2[which(dat2 < thresh)] <- NA
+    
+    dat1 <- normalize.quantiles(dat1)
+    dat2 <- normalize.quantiles(dat2)
+    
+    rownames(dat1) <- shRNAs1
+    rownames(dat2) <- shRNAs2
+    colnames(dat1) <- CN1
+    colnames(dat2) <- CN2
+    
+    dat1 <- melt(dat1)
+    dat2 <- melt(dat2)
+    stopifnot(!any(dat1$Var1 != dat2$Var1))
+    
+    dat1$x <- rep(1:passages, each = dim(dat1)[1]/passages) 
+    dat2$x <- rep(1:passages, each = dim(dat2)[1]/passages)
+    colnames(dat1)[3] <- "y"
+    colnames(dat2)[3] <- "y"
+    
+    bc1 <- boxcox(dat1$y~dat1$x, plotit = F)
+    bc2 <- boxcox(dat2$y~dat2$x, plotit = F)
+    dat1$y <- dat1$y^bc1$x[which.max(bc1$y)]
+    dat2$y <- dat2$y^bc2$x[which.max(bc2$y)]
+    
+    dat1 <- dat1[complete.cases(dat1),]
+    dat2 <- dat2[complete.cases(dat2),]
+    
     gene.vector <- read.table(file = genes, stringsAsFactors = F)
     gene.vector <- gene.vector[,1]
     return.data <- NULL
-    for(i in 1:length(gene.vector)){
-        return.data <- rbind(return.data, shRNA_Screening_Function2(dat1 = dat1, dat2 = dat2, gene = gene.vector[i],  
-                                                      passages = passages, thresh = thresh, 
-                                                      bio.reps = bio.reps, BootRep = BootRep))
+    
+    for(i in 1:length(gene.vector)) {
+        dat1.gene <- dat1[grep(gene.vector[i], dat1$Var1),3:4]
+        dat2.gene <- dat2[grep(gene.vector[i], dat2$Var1),3:4]
+        return.data <- rbind(return.data, BootPValue(d1 = dat2.gene,
+                                                     d2 = dat1.gene, 
+                                                     BootRep = BootRep))
     }
+    
     return.data <- as.data.frame(return.data)
     return.data$AdjustedPvalue <- p.adjust(return.data$Pvalue, method = adjust)
     rownames(return.data) <- gene.vector
-    return(return.data)
-}
-
-##########################################################################################
-
-shRNA_Screening_Function2 <- function(dat1 = dat1, dat2 = dat2, gene = gene, BootRep = BootRep, 
-                                      passages = passages, thresh = thresh, bio.reps = bio.reps){
-    stopifnot(is.character(gene), file.exists(dat1), file.exists(dat2), is.numeric(BootRep))
-    norm.control.data <- shRNA_Screening_Function1(dat = dat1, thresh = thresh, passages = passages, bio.reps = bio.reps)
-    norm.treated.data <- shRNA_Screening_Function1(dat = dat2, thresh = thresh, passages = passages, bio.reps = bio.reps)
-    stopifnot(!any(norm.control.data$Var1 != norm.treated.data$Var1))
-    norm.control.data.gene <- norm.control.data[grep(paste0("*",gene,"*"), norm.control.data$Var1),3:4]
-    norm.control.data.gene <- norm.control.data.gene[which(complete.cases(norm.control.data.gene)),]
-    norm.treated.data.gene <- norm.treated.data[grep(paste0("*",gene,"*"), norm.treated.data$Var1),3:4]
-    norm.treated.data.gene <- norm.treated.data.gene[which(complete.cases(norm.treated.data.gene)),]
-    BootPValue(d1 = norm.treated.data.gene, d2 = norm.control.data.gene, BootRep = BootRep)
-}
-
-##########################################################################################
-
-shRNA_Screening_Function1 <- function(dat = "data.csv", thresh = thresh, passages = passages, bio.reps = bio.reps) {
-    require(MASS); require(reshape2); require(preprocessCore)
-    stopifnot(file.exists(dat), is.numeric(thresh), is.numeric(passages), is.numeric(bio.reps))
-    dat <- as.matrix(read.csv(dat, row.names = 1))
-    stopifnot(is.matrix(dat), !is.null(rownames(dat)))
-    shRNAs <- rownames(dat); CN <- colnames(dat)
-    dat[which(dat < thresh)] <- NA
-    dat.2 <- normalize.quantiles(dat)
-    rownames(dat.2) <- shRNAs
-    colnames(dat.2) <- CN
-    dat.3 <- melt(dat.2)
-    dat.3$x <- rep(1:passages, each = bio.reps)
-    colnames(dat.3)[3] <- "y"
-    bc <- boxcox(dat.3$y~dat.3$x, plotit = F)
-    dat.3$y <- dat.3$y^bc$x[which.max(bc$y)]
-    return(dat.3)
+    return(list(LRTstats = return.data, ControlData = dat1, TreatedData = dat2))
 }
 
 ##########################################################################################
@@ -130,22 +155,29 @@ LikRatio <- function(d1 = dat1, d2 = dat2) {
     rat1   = out1$SXX/(out1$SXX + out2$SXX)
     rat2   = 1 - rat1
     
-    if((b11 < 0) && (b21 > 0) && (b21 < abs(b11))) {
+    if(is.na((b11 < 0) && (b21 > 0) && (b21 < abs(b11))) & is.na((b11 < 0) && (b21 < 0) && (b21 > b11))){
+        ## catches cases where slope parameters cannot be calculated
+    }
+    else if((b11 < 0) && (b21 > 0) && (b21 < abs(b11))) { 
         b1dhat = rat1*b11 - rat2*b21
         b11res = b1dhat
         b21res = -b1dhat
     }
-    
-    if((b11 < 0) && (b21 < 0) && (b21 > b11)) {
+    else if((b11 < 0) && (b21 < 0) && (b21 > b11)) {
         b1dhat = rat1*b11 + rat2*b21
         b11res = b1dhat
         b21res = b1dhat
     }
-    
+
     b10res = y1bar - b11res*x1bar
     b20res = y2bar - b21res*x2bar
     sig2hatres = (sum((d1$y - (b10res + b11res*d1$x))^2) + sum((d2$y - (b20res + b21res*d2$x))^2))/(n1 + n2)
     NegLogLR = (n1 + n2)*(log(sig2hatres) - log(sig2hat))
+    if (NegLogLR < 1e-10 | is.na(NegLogLR)){
+        # catches errors where LR for some genes outside the region of interest are calculated to be
+        # ~ 5e-14 (almost always this value...)
+        NegLogLR <- 0
+    }
     UnRestrict = list(n1 = n1, n2 = n2, b10 = b10, b11 = b11, b20 = b20, 
                       b21 = b21, sig2hat = sig2hat)
     Restrict=list(b10res = b10res, b11res = b11res, b20res = b20res, 
